@@ -1,255 +1,287 @@
 
-import { useState } from "react";
-import {
-  ShieldCheck, LayoutDashboard, ScanSearch, Image as ImageIcon,
-  MessageCircle, Link2, History, Mic, Bell, ArrowRight, ArrowUpRight,
-  CheckCircle2, AlertTriangle, LockKeyhole, Activity, Upload, Send,
-  Sparkles, Menu, X, Search
-} from "lucide-react";
-import "./styles.css";
+import React, { useMemo, useState } from "react";
+import "./App.css";
 
-const tools = [
-  { id: "fraud", name: "Fraud Detector", desc: "Check payment details for warning signs.", icon: ShieldCheck, color: "green" },
-  { id: "screenshot", name: "Screenshot Checker", desc: "Select a payment screenshot for review.", icon: ImageIcon, color: "blue" },
-  { id: "chat", name: "AI Safety Chat", desc: "Get practical scam prevention guidance.", icon: MessageCircle, color: "purple" },
-  { id: "scanner", name: "SMS & Link Scanner", desc: "Inspect suspicious texts and URLs.", icon: Link2, color: "red" },
-  { id: "history", name: "Scan History", desc: "Review this session's demo checks.", icon: History, color: "teal" },
-  { id: "voice", name: "Voice Assistant", desc: "Ask a safety question using your voice.", icon: Mic, color: "violet" }
+const initialActivity = [
+  { title: "Payment safety check", detail: "Demo transaction reviewed", status: "REVIEWED", time: "Just now", icon: "₹" },
+  { title: "SMS protection", detail: "Ready to scan a message", status: "READY", time: "Available", icon: "⌕" },
+  { title: "Security assistant", detail: "Scam prevention guidance", status: "READY", time: "Available", icon: "✦" }
 ];
 
-const navItems = [
-  { id: "dashboard", name: "Dashboard", icon: LayoutDashboard },
-  ...tools.map(({ id, name, icon }) => ({ id, name, icon }))
-];
+function analyzeText(value) {
+  const rules = [
+    { pattern: /\b(otp|one.time.password)\b/i, label: "OTP request", points: 25 },
+    { pattern: /\b(up(i)? pin|bank pin|password)\b/i, label: "Sensitive credential request", points: 30 },
+    { pattern: /\b(urgent|immediately|account blocked|suspended)\b/i, label: "Urgency or account-threat language", points: 15 },
+    { pattern: /\b(prize|winner|lottery|free money|reward claimed)\b/i, label: "Prize or reward lure", points: 20 },
+    { pattern: /\b(bit\.ly|tinyurl\.com|t\.co|click here|verify kyc)\b/i, label: "Potentially risky link or verification request", points: 25 },
+    { pattern: /\b(send money to receive|pay fee to receive|refund fee)\b/i, label: "Suspicious payment instruction", points: 25 }
+  ];
 
-function App() {
-  const [active, setActive] = useState("dashboard");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [recipient, setRecipient] = useState("");
-  const [message, setMessage] = useState("");
-  const [fileName, setFileName] = useState("");
-  const [search, setSearch] = useState("");
-  const [result, setResult] = useState(null);
+  const findings = rules.filter(rule => rule.pattern.test(value));
+  const score = Math.min(100, findings.reduce((sum, rule) => sum + rule.points, 0));
+  return { score, findings };
+}
+
+export default function App() {
+  const [page, setPage] = useState("Overview");
+  const [input, setInput] = useState("");
+  const [analysis, setAnalysis] = useState(null);
   const [history, setHistory] = useState([]);
-  const [question, setQuestion] = useState("");
-  const [chat, setChat] = useState([
-    { from: "ai", text: "Namaste! Main PayRakshak Safety Assistant hoon. Aapko koi suspicious message ya payment mila hai?" }
+  const [messages, setMessages] = useState([
+    { role: "assistant", text: "Hi! I can help you understand common UPI scams, suspicious SMS messages and payment safety. What would you like to check?" }
   ]);
-  const [voiceText, setVoiceText] = useState("Your voice assistant is ready.");
+  const [question, setQuestion] = useState("");
+  const [search, setSearch] = useState("");
 
-  const showResult = (title, text, warning = false) => {
-    setResult({ title, text, warning });
-  };
+  const stats = useMemo(() => ({
+    checks: history.length,
+    flagged: history.filter(item => item.score >= 30).length,
+    safe: history.filter(item => item.score < 30).length
+  }), [history]);
 
-  const record = (title, detail, status) => {
-    setHistory((old) => [{
-      title,
-      detail,
-      status,
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    }, ...old]);
-  };
+  function runAnalysis(event) {
+    event.preventDefault();
+    if (!input.trim()) return;
 
-  const analyzePayment = (e) => {
-    e.preventDefault();
-    if (!recipient.trim() || !amount || Number(amount) <= 0) {
-      showResult("Details required", "Please enter a valid amount and recipient.", true);
-      return;
-    }
+    const result = analyzeText(input.trim());
+    setAnalysis(result);
+    setHistory(old => [
+      { id: Date.now(), text: input.trim().slice(0, 64), score: result.score, findings: result.findings.length, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) },
+      ...old
+    ].slice(0, 8));
+  }
 
-    const highAmount = Number(amount) >= 50000;
-    record("Payment risk check", `₹${Number(amount).toLocaleString("en-IN")} · ${recipient}`, highAmount ? "Review" : "Checked");
-    showResult(
-      highAmount ? "Extra verification recommended" : "Basic check complete",
-      highAmount
-        ? "This demo flags larger amounts for extra caution. Verify the recipient independently before paying."
-        : "No high-amount warning was triggered. This does not prove the recipient or payment is safe.",
-      highAmount
-    );
-  };
-
-  const analyzeMessage = (e) => {
-    e.preventDefault();
-    if (!message.trim()) {
-      showResult("Message required", "Paste an SMS, WhatsApp message or URL first.", true);
-      return;
-    }
-
-    const suspicious = /otp|upi pin|password|urgent|click here|prize|lottery|account blocked|verify now|pay fee|bit\.ly|tinyurl|remote access/i.test(message);
-    record("SMS & link scan", message.slice(0, 70), suspicious ? "Caution" : "Reviewed");
-    showResult(
-      suspicious ? "Potential warning signs found" : "No listed warning keywords found",
-      suspicious
-        ? "This text contains wording commonly associated with scams. Do not share OTP/PIN or click unknown links. Verify through the official app."
-        : "This simple keyword scan found no listed warning signs. It cannot guarantee that a message or URL is safe.",
-      suspicious
-    );
-  };
-
-  const sendChat = (e) => {
-    e.preventDefault();
+  function sendMessage(event) {
+    event.preventDefault();
     if (!question.trim()) return;
     const q = question.trim();
-    setChat((old) => [
-      ...old,
-      { from: "you", text: q },
-      { from: "ai", text: "Safety tip: OTP, UPI PIN aur password kisi ke saath share mat karein. Paise receive karne ke liye UPI PIN ki zarurat nahi hoti. Unknown links se bachein aur official payment app mein transaction verify karein. (Demo response — live AI connected nahi hai.)" }
-    ]);
-    setQuestion("");
-  };
+    let answer = "Verify requests independently through your bank's official app or published support number. Never disclose your UPI PIN, OTP or password.";
 
-  const startVoice = () => {
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) {
-      setVoiceText("Voice input is not supported here. Please try Chrome or use the chatbot.");
-      return;
+    if (/otp|pin|password/i.test(q)) {
+      answer = "Never share an OTP, UPI PIN or banking password with anyone. A UPI PIN is used to authorize payments, not to receive money.";
+    } else if (/link|url|sms|message/i.test(q)) {
+      answer = "Avoid unexpected links, especially those demanding urgent KYC updates, prizes or account verification. Open your bank's official app directly instead.";
+    } else if (/fraud|scam|cheat|lost money/i.test(q)) {
+      answer = "If you suspect fraud, contact your bank immediately. In India, report suspected cyber financial fraud through the official 1930 helpline and cybercrime.gov.in.";
     }
-    const recognition = new Recognition();
-    recognition.lang = "hi-IN";
-    recognition.onresult = (event) => {
-      const text = event.results[0][0].transcript;
-      setVoiceText("You said: " + text);
-      setQuestion(text);
-    };
-    recognition.onerror = () => setVoiceText("Microphone permission check karein aur dobara try karein.");
-    setVoiceText("Listening... Speak now.");
-    recognition.start();
-  };
 
-  const activeTool = tools.find((tool) => tool.id === active);
-  const records = [
-    ...history.map((item) => ({ title: item.title, sub: item.detail, status: item.status, time: item.time })),
-    { title: "UPI safety check", sub: "Sample dashboard activity", status: "Demo", time: "Earlier" },
-    { title: "Message inspection", sub: "Sample dashboard activity", status: "Demo", time: "Earlier" }
-  ].filter((item) => `${item.title} ${item.sub} ${item.status}`.toLowerCase().includes(search.toLowerCase()));
+    setMessages(old => [...old, { role: "user", text: q }, { role: "assistant", text: answer }]);
+    setQuestion("");
+  }
+
+  const nav = [
+    ["Overview", "◈"],
+    ["Fraud Analyzer", "⌕"],
+    ["SMS & Link Scan", "↗"],
+    ["AI Assistant", "✳"],
+    ["Scan History", "◷"],
+    ["Security Center", "⬡"]
+  ];
+
+  const visibleHistory = history.filter(item => item.text.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="app-shell">
-      {menuOpen && <button className="scrim" onClick={() => setMenuOpen(false)} aria-label="Close navigation" />}
-      <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
-        <button className="brand" onClick={() => { setActive("dashboard"); setMenuOpen(false); }}>
-          <span className="brand-logo"><ShieldCheck size={27} /></span>
-          <span className="brand-copy"><strong>PayRakshak <b>AI</b></strong><small>Digital Payment Safety</small></span>
-          <X className="close-nav" size={20} />
-        </button>
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark"><span>p</span></div>
+          <div><b>PayRakshak<span className="brand-ai"> AI</span></b><small>FINANCIAL DEFENSE</small></div>
+        </div>
 
-        <p className="nav-label">MAIN MENU</p>
+        <div className="nav-caption">MAIN MENU</div>
         <nav>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return <button key={item.id} className={`nav-link ${active === item.id ? "selected" : ""}`} onClick={() => { setActive(item.id); setResult(null); setMenuOpen(false); }}>
-              <Icon size={18} /><span>{item.name}</span>{active === item.id && <i />}
-            </button>;
-          })}
+          {nav.map(([name, icon]) => (
+            <button key={name} onClick={() => { setPage(name); setAnalysis(null); }}
+              className={`nav-item ${page === name ? "active" : ""}`}>
+              <span className="nav-icon">{icon}</span>{name}
+              {name === "Fraud Analyzer" && <span className="nav-arrow">↗</span>}
+            </button>
+          ))}
         </nav>
 
-        <div className="sidebar-tip">
-          <LockKeyhole size={24} />
-          <strong>Stay one step ahead</strong>
-          <p>Pause. Verify. Then pay.</p>
-          <small>Never share your OTP or UPI PIN with anyone.</small>
+        <div className="sidebar-spacer" />
+        <div className="protection-card">
+          <div className="protection-icon">✳</div>
+          <b>Protection workspace</b>
+          <p>Prototype security tools are ready to use.</p>
+          <span><i /> DEMO ENVIRONMENT</span>
         </div>
-        <div className="sidebar-footer"><ShieldCheck size={18} /><span><b>PayRakshak AI</b><small>Security prototype · v1.0</small></span></div>
+        <div className="user-profile">
+          <div className="avatar">PR</div>
+          <div><b>Demo Workspace</b><small>Local session</small></div>
+          <span className="profile-dots">•••</span>
+        </div>
       </aside>
 
-      <main className="main-area">
+      <main className="main">
         <header className="topbar">
-          <div className="welcome">
-            <button className="mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Open navigation"><Menu /></button>
-            <div><span className="eyebrow">YOUR DIGITAL SAFETY SPACE</span><h1>{active === "dashboard" ? "Hello, User! 👋" : activeTool?.name}</h1><p>{active === "dashboard" ? "Your daily shield against digital payment scams." : "Check carefully. Stay protected."}</p></div>
+          <div className="breadcrumb">Workspace <span>/</span> <b>{page}</b></div>
+          <div className="top-actions">
+            <span className="environment"><i /> PROTOTYPE</span>
+            <div className="top-avatar">PR</div>
           </div>
-          <div className="top-actions"><span className="demo-label"><i /> DEMO MODE</span><button className="bell" onClick={() => showResult("All caught up", "There are no new demo notifications.")} aria-label="Notifications"><Bell size={19} /></button><span className="user-avatar">U</span></div>
         </header>
 
-        <div className="page-content">
-          {active === "dashboard" && <>
-            <section className="hero">
-              <div className="hero-glow" />
-              <div className="hero-copy">
-                <span className="hero-tag"><Sparkles size={14} /> YOUR PERSONAL SAFETY SHIELD</span>
-                <h2>Think smart.<br /><span>Pay safely.</span></h2>
-                <p>Suspicious payment? Strange message? Unknown link? Start with a quick safety check.</p>
-                <button className="primary-btn" onClick={() => setActive("fraud")}>Start security check <ArrowRight size={17} /></button>
-                <div className="hero-foot"><CheckCircle2 size={15} /> Simple tools. Safer decisions.</div>
+        {page === "Overview" && (
+          <div className="content">
+            <section className="welcome-row">
+              <div>
+                <div className="eyebrow"><span /> DIGITAL PAYMENT INTELLIGENCE</div>
+                <h1>Security <span>Command Center</span></h1>
+                <p className="subtitle">Understand risk signals before you trust a payment request.</p>
               </div>
-              <div className="shield-art">
-                <div className="orbit orbit-one" /><div className="orbit orbit-two" />
-                <div className="big-shield"><ShieldCheck size={83} strokeWidth={1.5} /></div>
-                <span className="float-icon float-one"><LockKeyhole size={19} /></span>
-                <span className="float-icon float-two"><CheckCircle2 size={19} /></span>
-                <span className="float-icon float-three"><Activity size={18} /></span>
-                <span className="shield-caption"><i /> PROTECTION FIRST</span>
-              </div>
-              <div className="hero-checks"><b>SAFETY CHECKLIST</b>{["Verify recipient details", "Never share OTP or PIN", "Avoid unknown links", "Use official apps"].map((item) => <span key={item}><CheckCircle2 size={15} />{item}</span>)}</div>
+              <button className="button-primary" onClick={() => setPage("Fraud Analyzer")}>＋ New analysis <span>→</span></button>
             </section>
 
-            <div className="section-head"><div><span className="eyebrow">OVERVIEW</span><h2>Your security at a glance</h2></div><span className="sample-tag">Illustrative demo stats</span></div>
+            <section className="hero-banner">
+              <div className="hero-copy">
+                <span className="hero-label"><span>✳</span> YOUR DIGITAL SAFETY HUB</span>
+                <h2>Think before you<br /><span>tap. Pay with confidence.</span></h2>
+                <p>Analyze suspicious messages, identify common scam signals and learn safer payment habits.</p>
+                <button className="button-light" onClick={() => setPage("Fraud Analyzer")}>Launch fraud analyzer <span>↗</span></button>
+              </div>
+              <div className="hero-visual">
+                <div className="hero-ring ring-a" />
+                <div className="hero-ring ring-b" />
+                <div className="hero-shield"><span>✓</span></div>
+                <div className="floating-chip chip-top">✳ Risk intelligence</div>
+                <div className="floating-chip chip-bottom"><i /> Safety tools ready</div>
+              </div>
+              <div className="hero-glow" />
+            </section>
+
+            <div className="section-title">
+              <div><h2>Workspace intelligence</h2><p>Metrics from this browser session</p></div>
+              <span className="small-tag">LOCAL DEMO DATA</span>
+            </div>
+
             <section className="stats-grid">
-              <Stat icon={ScanSearch} label="Total scans" value={24 + history.length} color="blue" note="Session activity" />
-              <Stat icon={ShieldCheck} label="Safe results" value="18" color="green" note="Sample statistic" />
-              <Stat icon={AlertTriangle} label="Needs review" value={4 + history.filter((x) => x.status === "Review" || x.status === "Caution").length} color="red" note="Sample statistic" />
-              <Stat icon={Activity} label="Safety checks" value="06" color="purple" note="Available tools" />
+              <div className="stat-card">
+                <div className="stat-top"><span>ANALYSES RUN</span><span className="stat-icon blue">⌕</span></div>
+                <div className="stat-value">{stats.checks.toString().padStart(2, "0")}</div>
+                <div className="stat-foot">Checks in this session</div>
+                <div className="mini-bars"><i /><i /><i /><i /><i /><i /><i /><i /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-top"><span>FLAGGED FOR REVIEW</span><span className="stat-icon red">⚑</span></div>
+                <div className="stat-value">{stats.flagged.toString().padStart(2, "0")}</div>
+                <div className="stat-foot">High-signal pattern matches</div>
+                <div className="stat-status warning">Requires attention</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-top"><span>LOW-SIGNAL RESULTS</span><span className="stat-icon green">✓</span></div>
+                <div className="stat-value">{stats.safe.toString().padStart(2, "0")}</div>
+                <div className="stat-foot">No strong demo rules matched</div>
+                <div className="stat-status good">Keep verifying</div>
+              </div>
             </section>
 
             <div className="dashboard-grid">
-              <section className="panel tools-panel">
-                <div className="panel-head"><div><span className="eyebrow">YOUR TOOLKIT</span><h2>Security tools</h2><p>Choose a tool to explore its demo functionality.</p></div><span className="tool-count">06 TOOLS</span></div>
-                <div className="tool-grid">{tools.map((tool, i) => <ToolCard key={tool.id} tool={tool} index={i} onClick={() => setActive(tool.id)} />)}</div>
+              <section className="surface">
+                <div className="surface-heading"><div><h3>Security toolkit</h3><p>Choose your next action</p></div><span className="heading-symbol">↗</span></div>
+                <div className="tool-list">
+                  <button className="tool-row" onClick={() => setPage("Fraud Analyzer")}>
+                    <span className="tool-symbol purple-bg">₹</span><span className="tool-description"><b>Payment fraud analyzer</b><small>Inspect messages for common risk signals</small></span><span className="tool-chevron">→</span>
+                  </button>
+                  <button className="tool-row" onClick={() => setPage("SMS & Link Scan")}>
+                    <span className="tool-symbol cyan-bg">⌁</span><span className="tool-description"><b>SMS & link intelligence</b><small>Review suspicious URLs and messages</small></span><span className="tool-chevron">→</span>
+                  </button>
+                  <button className="tool-row" onClick={() => setPage("AI Assistant")}>
+                    <span className="tool-symbol gold-bg">✳</span><span className="tool-description"><b>Security assistant</b><small>Explore scam prevention guidance</small></span><span className="tool-chevron">→</span>
+                  </button>
+                </div>
               </section>
-              <div className="right-stack">
-                <section className="panel activity-panel">
-                  <div className="panel-head small-head"><div><span className="eyebrow">LATEST ACTIVITY</span><h2>Recent checks</h2></div><button className="text-link" onClick={() => setActive("history")}>View all <ArrowUpRight size={14} /></button></div>
-                  {[
-                    { title: "UPI Payment Check", sub: "Example transaction", status: "Safe", color: "green" },
-                    { title: "Screenshot Review", sub: "Example image", status: "Review", color: "orange" },
-                    { title: "Suspicious Link Scan", sub: "Example URL", status: "Caution", color: "red" }
-                  ].map((item) => <ActivityRow key={item.title} item={item} />)}
-                  <small className="sample-note">Sample entries · Not real bank records</small>
-                </section>
-                <section className="tip-card"><span className="tip-icon"><LockKeyhole size={21} /></span><div><span className="eyebrow">SAFETY TIP / सुरक्षा</span><h3>Pause before you pay.</h3><p>Paise receive karne ke liye UPI PIN kabhi enter na karein.</p><button onClick={() => setActive("chat")}>Learn more <ArrowRight size={14} /></button></div></section>
-                <section className="voice-card-small"><span className="voice-small-icon"><Mic size={22} /></span><div><span className="eyebrow">HINDI · ENGLISH</span><h3>Prefer speaking?</h3><p>Ask a safety question out loud.</p><button onClick={() => setActive("voice")}>Try voice assistant <ArrowRight size={14} /></button></div></section>
-              </div>
+
+              <section className="surface">
+                <div className="surface-heading"><div><h3>Session activity</h3><p>Your recent local checks</p></div><button className="text-button" onClick={() => setPage("Scan History")}>View all ↗</button></div>
+                {history.length === 0 ? (
+                  <div className="empty-state"><div className="empty-icon">◷</div><b>No analyses yet</b><p>Run your first check to see session activity here.</p><button className="button-secondary" onClick={() => setPage("Fraud Analyzer")}>Start first check</button></div>
+                ) : history.slice(0, 4).map(item => (
+                  <div className="activity-row" key={item.id}><span className={`activity-dot ${item.score >= 30 ? "danger" : "normal"}`} /><div className="activity-copy"><b>{item.text || "Message analysis"}</b><small>{item.time} · {item.findings} signal(s)</small></div><span className={`risk-pill ${item.score >= 30 ? "risk-high" : "risk-low"}`}>{item.score}%</span></div>
+                ))}
+              </section>
             </div>
-          </>}
+            <div className="disclaimer-banner"><span>ⓘ</span><p><b>Prototype notice:</b> This dashboard analyzes text using sample rules. It is not connected to bank accounts, live fraud feeds or a verified AI model.</p></div>
+          </div>
+        )}
 
-          {active !== "dashboard" && <section className="workspace">
-            <div className="workspace-title"><span className={`workspace-icon ${activeTool?.color || "green"}`}>{activeTool && <activeTool.icon size={26} />}</span><div><span className="eyebrow">PAYRAKSHAK AI TOOL</span><h2>{activeTool?.name}</h2><p>{activeTool?.desc}</p></div></div>
+        {(page === "Fraud Analyzer" || page === "SMS & Link Scan") && (
+          <div className="content">
+            <div className="page-heading"><div className="eyebrow"><span /> THREAT ANALYSIS WORKSPACE</div><h1>{page === "Fraud Analyzer" ? "Fraud Risk Analyzer" : "SMS & Link Intelligence"}</h1><p className="subtitle">Paste the message or URL you want to review. No transaction is performed.</p></div>
+            <div className="analyzer-layout">
+              <section className="surface analyzer-form">
+                <div className="surface-heading"><div><h3>Input intelligence</h3><p>Provide the content for a local rule-based check</p></div><span className="step-badge">01 / INPUT</span></div>
+                <form onSubmit={runAnalysis}>
+                  <label htmlFor="risk-input">Message, payment request or URL</label>
+                  <textarea id="risk-input" value={input} onChange={e => setInput(e.target.value)} placeholder="Example: Your account will be blocked. Verify KYC immediately using this link..." />
+                  <div className="input-hint"><span>ⓘ</span> Do not paste real passwords, OTPs or private banking information.</div>
+                  <button className="button-primary full-button">Analyze risk signals <span>→</span></button>
+                </form>
+                <div className="example-box"><b>Try a sample</b><button onClick={() => setInput("URGENT! Your bank account will be blocked. Verify KYC immediately using this link and share OTP.")}>Suspicious KYC message ↗</button><button onClick={() => setInput("Please review the payment amount and recipient in your official banking app.")}>Ordinary payment reminder ↗</button></div>
+              </section>
 
-            {active === "fraud" && <form className="form-panel" onSubmit={analyzePayment}><h3>Transaction risk check</h3><p className="muted">Enter payment details for a basic educational demo check.</p><label>Payment amount (₹)<input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 2500" /></label><label>Recipient / merchant<input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Enter recipient name" /></label><button className="primary-btn" type="submit"><ScanSearch size={17} /> Analyze payment <ArrowRight size={16} /></button><p className="disclaimer"><LockKeyhole size={14} /> Not connected to any bank or payment network.</p></form>}
+              <section className="surface results-panel">
+                <div className="surface-heading"><div><h3>Risk intelligence</h3><p>Rule-based result for this input</p></div><span className="step-badge">02 / RESULTS</span></div>
+                {analysis ? (
+                  <>
+                    <div className="risk-display">
+                      <div className={`risk-gauge ${analysis.score >= 50 ? "gauge-high" : analysis.score >= 25 ? "gauge-medium" : "gauge-low"}`}><div><strong>{analysis.score}</strong><small>/ 100</small></div></div>
+                      <div><span className={`risk-pill ${analysis.score >= 50 ? "risk-high" : analysis.score >= 25 ? "risk-medium" : "risk-low"}`}>{analysis.score >= 50 ? "HIGH SIGNAL" : analysis.score >= 25 ? "REVIEW NEEDED" : "LOW SIGNAL"}</span><h3>{analysis.score >= 50 ? "Potential warning signs" : analysis.score >= 25 ? "Review carefully" : "Few rules triggered"}</h3><p>This score reflects matched demo rules, not the true probability of fraud.</p></div>
+                    </div>
+                    <div className="findings-title">DETECTED INDICATORS <span>{analysis.findings.length}</span></div>
+                    {analysis.findings.length ? analysis.findings.map(item => <div className="finding" key={item.label}><span>⚑</span><div><b>{item.label}</b><small>Matched a local detection rule</small></div></div>) : <div className="no-findings">✓ No configured warning pattern matched. This does not mean the content is safe.</div>}
+                    <div className="next-step"><b>Recommended next step</b><p>Verify the sender independently, avoid unknown links, and never share your UPI PIN or OTP.</p></div>
+                  </>
+                ) : <div className="empty-state large-empty"><div className="empty-icon">⌕</div><b>Awaiting input analysis</b><p>Submit content to view its rule matches, score and safety guidance.</p></div>}
+              </section>
+            </div>
+            <div className="disclaimer-banner"><span>ⓘ</span><p>This is an educational prototype. A message may be fraudulent even when no configured rule matches.</p></div>
+          </div>
+        )}
 
-            {active === "screenshot" && <div className="form-panel"><h3>Screenshot checker</h3><p className="muted">Select an image to begin. Actual authenticity verification needs a configured AI/OCR backend.</p><label className="upload-box"><Upload size={31} /><b>{fileName || "Choose payment screenshot"}</b><small>PNG, JPG or WEBP</small><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} /></label>{fileName && <p className="success-note"><CheckCircle2 size={16} /> Image selected: {fileName}</p>}<button className="primary-btn" onClick={() => showResult("Verification not connected", "The image is selected, but this demo cannot determine whether a screenshot is genuine. Verify the payment inside your official UPI app or bank statement.", true)}><ScanSearch size={17} /> Review screenshot</button></div>}
+        {page === "AI Assistant" && (
+          <div className="content">
+            <div className="page-heading"><div className="eyebrow"><span /> SECURITY KNOWLEDGE</div><h1>AI Security Assistant</h1><p className="subtitle">Ask about UPI safety, suspicious messages and common scams.</p></div>
+            <section className="surface chat-surface">
+              <div className="chat-header"><div className="assistant-avatar">✳</div><div><b>Rakshak Assistant</b><small><i /> Local demo assistant · Predefined guidance</small></div><span className="step-badge">DEMO</span></div>
+              <div className="chat-body">{messages.map((item, index) => <div className={`chat-message ${item.role}`} key={index}><span className="chat-avatar">{item.role === "user" ? "YOU" : "✳"}</span><div><small>{item.role === "user" ? "YOU" : "RAKSHAK ASSISTANT"}</small><p>{item.text}</p></div></div>)}</div>
+              <div className="quick-questions">{["How do I protect my UPI PIN?", "How can I spot a fake link?", "What if I lost money to fraud?"].map(q => <button key={q} onClick={() => setQuestion(q)}>{q} ↗</button>)}</div>
+              <form className="chat-compose" onSubmit={sendMessage}><input value={question} onChange={e => setQuestion(e.target.value)} placeholder="Ask a security question..." /><button className="button-primary">Send ↑</button></form>
+              <p className="disclaimer">This assistant uses predefined local responses. It is not a live generative AI service.</p>
+            </section>
+          </div>
+        )}
 
-            {active === "scanner" && <form className="form-panel" onSubmit={analyzeMessage}><h3>SMS & link scanner</h3><p className="muted">Paste a suspicious message or URL to check common warning signs.</p><label>Message or URL<textarea rows="5" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Paste SMS, WhatsApp text or URL here..." /></label><button className="primary-btn" type="submit"><ScanSearch size={17} /> Scan message <ArrowRight size={16} /></button><p className="disclaimer"><AlertTriangle size={14} /> A clean result does not guarantee a link is safe.</p></form>}
+        {page === "Scan History" && (
+          <div className="content">
+            <div className="page-heading"><div className="eyebrow"><span /> LOCAL SESSION RECORDS</div><h1>Scan History</h1><p className="subtitle">Analyses stored temporarily in this page session.</p></div>
+            <section className="surface">
+              <div className="surface-heading"><div><h3>Recent analyses</h3><p>{history.length} recorded in this session</p></div><input className="search-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search records..." /></div>
+              {visibleHistory.length === 0 ? <div className="empty-state"><div className="empty-icon">◷</div><b>No matching records</b><p>Run an analysis to populate this table.</p><button className="button-secondary" onClick={() => setPage("Fraud Analyzer")}>New analysis</button></div> : <div className="history-table"><div className="table-header"><span>INPUT SUMMARY</span><span>TIME</span><span>RISK SCORE</span></div>{visibleHistory.map(item => <div className="table-row" key={item.id}><span>{item.text}</span><span>{item.time}</span><span className={`risk-pill ${item.score >= 30 ? "risk-high" : "risk-low"}`}>{item.score}/100</span></div>)}</div>}
+            </section>
+          </div>
+        )}
 
-            {active === "chat" && <div className="form-panel chat-panel"><h3><Sparkles size={20} /> AI Safety Chat</h3><p className="muted">Hindi / Hinglish / English · Demo responses</p><div className="chat-list">{chat.map((item, i) => <div key={i} className={`chat-message ${item.from}`}>{item.from === "ai" && <ShieldCheck size={16} />}{item.text}</div>)}</div><form className="chat-entry" onSubmit={sendChat}><input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about payment safety..." /><button aria-label="Send message" type="submit"><Send size={18} /></button></form></div>}
+        {page === "Security Center" && (
+          <div className="content">
+            <div className="page-heading"><div className="eyebrow"><span /> PERSONAL SECURITY</div><h1>Security Center</h1><p className="subtitle">Practical guidance for safer digital payments in India.</p></div>
+            <div className="security-grid">
+              {[
+                ["01", "Protect your UPI PIN", "A PIN authorizes payments. Never disclose it to callers or enter it to receive money."],
+                ["02", "Verify payment requests", "Check the payee name and amount inside your official payment app before approving."],
+                ["03", "Avoid unknown links", "Do not use unexpected KYC, refund or prize links. Open the official app directly."],
+                ["04", "Never share an OTP", "Banks and legitimate support staff should not ask you to reveal your OTP or password."],
+                ["05", "Act quickly after fraud", "Contact your bank immediately. In India, report suspected financial cyber fraud at 1930 or cybercrime.gov.in."],
+                ["06", "Check before installing", "Avoid remote-access apps suggested by strangers claiming to help with a refund."]
+              ].map(([number, title, body]) => <div className="tip-card" key={number}><span>{number}</span><h3>{title}</h3><p>{body}</p></div>)}
+            </div>
+          </div>
+        )}
 
-            {active === "history" && <section className="panel history-panel"><div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search scan history..." /></div>{records.length ? records.map((item, i) => <ActivityRow key={`${item.title}-${i}`} item={{ ...item, color: item.status === "Safe" || item.status === "Checked" ? "green" : "orange" }} />) : <p className="muted">No matching records.</p>}<p className="disclaimer">These are local demo records, not bank data.</p></section>}
-
-            {active === "voice" && <div className="form-panel voice-panel"><div className="voice-orb"><Mic size={39} /></div><span className="eyebrow">VOICE SAFETY COMPANION</span><h3>Ask. Listen. Stay safe.</h3><p className="muted">Try Hindi voice input if your browser supports speech recognition.</p><button className="primary-btn" onClick={startVoice}><Mic size={18} /> Start speaking</button><div className="voice-result">{voiceText}</div>{question && <p className="success-note">Recognized question is ready in the chatbot input. Open AI Safety Chat to send it.</p>}</div>}
-
-            {result && <div className={`result-box ${result.warning ? "warning" : ""}`}><span>{result.warning ? <AlertTriangle /> : <CheckCircle2 />}</span><div><h3>{result.title}</h3><p>{result.text}</p></div><button onClick={() => setResult(null)} aria-label="Close result"><X size={17} /></button></div>}
-            <div className="security-note"><LockKeyhole size={16} /><span>Security education prototype. Always verify payments through official apps.</span></div>
-          </section>}
-
-          <footer className="page-footer"><span>© 2026 <b>PayRakshak AI</b></span><span><i /> Built for safer digital payments</span><span>HACKATHON PROTOTYPE</span></footer>
-        </div>
+        <footer className="footer"><span className="footer-mark">P</span> PayRakshak AI <span className="footer-divider">/</span> Digital payment safety prototype <span className="footer-right">BUILT FOR SECURITY AWARENESS</span></footer>
       </main>
     </div>
   );
 }
 
-function Stat({ icon: Icon, label, value, color, note }) {
-  return <article className={`stat-card ${color}`}><div className="stat-top"><span className="stat-icon"><Icon size={20} /></span><span className="stat-note"><Activity size={12} /> {note}</span></div><p>{label}</p><strong>{value}</strong><div className="stat-bars">{[30, 55, 40, 72, 50, 86, 60, 95].map((height, i) => <i key={i} style={{ height: `${height}%` }} />)}</div></article>;
-}
-
-function ToolCard({ tool, index, onClick }) {
-  const Icon = tool.icon;
-  return <button className={`tool-card ${tool.color}`} onClick={onClick}><div className="tool-card-top"><span className="tool-icon"><Icon size={21} /></span><span className="tool-number">0{index + 1}</span></div><h3>{tool.name}</h3><p>{tool.desc}</p><span className="tool-open">Open tool <ArrowUpRight size={14} /></span></button>;
-}
-
-function ActivityRow({ item }) {
-  return <div className="activity-row"><span className={`activity-icon ${item.color || "green"}`}><ShieldCheck size={16} /></span><div className="activity-copy"><b>{item.title}</b><small>{item.sub || item.detail}</small></div><span className={`status ${item.color || "green"}`}>{item.status}</span>{item.time && <time>{item.time}</time>}</div>;
-}
-
-export default App;
