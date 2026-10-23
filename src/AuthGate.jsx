@@ -1,118 +1,39 @@
 
-import { useEffect, useState } from "react";
-import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  sendEmailVerification,
-  reload,
-  signOut,
-} from "firebase/auth";
-import { auth } from "./firebase";
+import { useState } from "react";
 import "./AuthGate.css";
 
 export default function AuthGate({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loggedIn, setLoggedIn] = useState(false);
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        try {
-          await reload(currentUser);
-          setUser(auth.currentUser);
-        } catch {
-          setUser(currentUser);
-        }
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
+  function handleLogin(e) {
+    e.preventDefault();
 
-    return unsubscribe;
-  }, []);
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-
-    try {
-      if (mode === "signup") {
-        const result = await createUserWithEmailAndPassword(
-          auth,
-          email.trim(),
-          password
-        );
-
-        await sendEmailVerification(result.user);
-        setMessage("Verification email bhej di gayi hai. Inbox check karo.");
-      } else {
-        const result = await signInWithEmailAndPassword(
-          auth,
-          email.trim(),
-          password
-        );
-
-        await reload(result.user);
-
-        if (!auth.currentUser.emailVerified) {
-          await sendEmailVerification(auth.currentUser);
-          setMessage("Dashboard kholne se pehle email verify karo. Inbox check karo.");
-        }
-      }
-    } catch (error) {
-      const errors = {
-        "auth/invalid-email": "Email address sahi nahi hai.",
-        "auth/invalid-credential": "Email ya password galat hai.",
-        "auth/email-already-in-use": "Is email se account pehle se hai.",
-        "auth/weak-password": "Password kam se kam 6 characters ka rakho.",
-        "auth/too-many-requests": "Bahut attempts hue. Thodi der baad try karo.",
-        "auth/operation-not-allowed": "Firebase mein Email/Password login enable karo.",
-        "auth/network-request-failed": "Internet connection check karo.",
-      };
-
-      setMessage(errors[error.code] || error.message);
-    } finally {
-      setBusy(false);
+    if (!email.trim() || !password.trim()) {
+      setMessage("Email aur password dono enter karo.");
+      return;
     }
+
+    // Demo login only: no Firebase or real authentication.
+    setLoggedIn(true);
   }
 
-  async function checkVerification() {
-    setBusy(true);
+  function handleLogout() {
+    setLoggedIn(false);
+    setEmail("");
+    setPassword("");
     setMessage("");
-
-    try {
-      await reload(auth.currentUser);
-      setUser(auth.currentUser);
-
-      if (!auth.currentUser.emailVerified) {
-        setMessage("Email abhi verify nahi hua. Inbox mein link open karo.");
-      }
-    } catch (error) {
-      setMessage(error.message);
-    } finally {
-      setBusy(false);
-    }
   }
 
-  if (loading) {
-    return <div className="auth-loading">PayRakshak AI loading...</div>;
-  }
-
-  if (user?.emailVerified) {
+  if (loggedIn) {
     return (
       <>
         <button
-          className="auth-logout"
-          onClick={() => signOut(auth)}
           type="button"
+          className="auth-logout"
+          onClick={handleLogout}
         >
           Logout
         </button>
@@ -121,128 +42,57 @@ export default function AuthGate({ children }) {
     );
   }
 
-  if (user && !user.emailVerified) {
-    return (
-      <main className="auth-page">
-        <section className="auth-card">
-          <div className="auth-shield">🛡️</div>
-          <h1>Verify your email</h1>
-          <p>
-            Verification link <strong>{user.email}</strong> par bheji gayi hai.
-            Inbox mein link open karo, phir neeche click karo.
-          </p>
-
-          {message && <div className="auth-message">{message}</div>}
-
-          <button
-            className="auth-submit"
-            onClick={checkVerification}
-            disabled={busy}
-          >
-            {busy ? "Checking..." : "I have verified my email"}
-          </button>
-
-          <button
-            className="auth-text-button"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              setMessage("");
-              try {
-                await sendEmailVerification(auth.currentUser);
-                setMessage("Verification email dobara bhej di gayi hai.");
-              } catch (error) {
-                setMessage(error.message);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            Resend verification email
-          </button>
-
-          <button
-            className="auth-text-button"
-            onClick={() => signOut(auth)}
-          >
-            Sign out
-          </button>
-        </section>
-      </main>
-    );
-  }
-
   return (
     <main className="auth-page">
-      <section className="auth-card">
+      <form className="auth-card" onSubmit={handleLogin}>
         <div className="auth-shield">🛡️</div>
+
         <div className="auth-brand">
-          PAYRAKSHAK <span>AI</span>
+          PAY<span>RAKSHAK</span> AI
         </div>
 
-        <h1>{mode === "login" ? "Welcome Back" : "Create Account"}</h1>
+        <h1>Welcome Back</h1>
+
         <p className="auth-subtitle">
-          {mode === "login"
-            ? "Login to your digital payment security dashboard."
-            : "Sign up to protect your digital payments."}
+          Enter your email and password to continue.
         </p>
 
-        <form onSubmit={handleSubmit}>
-          <label htmlFor="email">Email Address</label>
-          <input
-            id="email"
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            autoComplete="email"
-            required
-          />
+        <label htmlFor="email">Email Address</label>
+        <input
+          id="email"
+          type="email"
+          autoComplete="email"
+          placeholder="Enter any email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
 
-          <label htmlFor="password">Password</label>
-          <input
-            id="password"
-            type="password"
-            placeholder="At least 6 characters"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-            minLength={6}
-            required
-          />
+        <label htmlFor="password">Password</label>
+        <input
+          id="password"
+          type="password"
+          autoComplete="current-password"
+          placeholder="Enter any password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
 
-          {message && <div className="auth-message">{message}</div>}
+        {message && (
+          <p className="auth-message" role="alert">
+            {message}
+          </p>
+        )}
 
-          <button className="auth-submit" type="submit" disabled={busy}>
-            {busy
-              ? "Please wait..."
-              : mode === "login"
-                ? "Login Securely →"
-                : "Create Account →"}
-          </button>
-        </form>
-
-        <div className="auth-switch">
-          {mode === "login"
-            ? "Don't have an account?"
-            : "Already have an account?"}
-          <button
-            className="auth-text-button"
-            type="button"
-            onClick={() => {
-              setMode(mode === "login" ? "signup" : "login");
-              setMessage("");
-            }}
-          >
-            {mode === "login" ? "Sign up" : "Login"}
-          </button>
-        </div>
+        <button className="auth-submit" type="submit">
+          Login
+        </button>
 
         <div className="auth-footer">
-          🔒 Secure email authentication
+          PayRakshak AI · Demo Login
         </div>
-      </section>
+      </form>
     </main>
   );
 }
-
